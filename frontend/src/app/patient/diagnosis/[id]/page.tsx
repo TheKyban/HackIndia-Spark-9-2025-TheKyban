@@ -29,6 +29,7 @@ import {
   Loader2
 } from "lucide-react"
 import { useGeminiDiagnosis } from "@/lib/hooks/useGeminiDiagnosis"
+import mlService from "@/services/mlService"
 
 // Type definition for diagnosis data
 interface DiagnosisData {
@@ -41,15 +42,19 @@ interface DiagnosisData {
   symptoms: string;
   doctorName: string;
   doctorFeedback: string;
-  imageSrc: string;
-  aiModelData: {
+  imageSrc?: string;
+  aiModelData?: {
     modelVersion: string;
     analysisTimestamp: string;
     processingTime: string;
     featuresAnalyzed: string;
   };
-  treatmentRecommendations: string[];
-  riskFactors: string[];
+  treatmentRecommendations?: string[];
+  riskFactors?: string[];
+  aiResponse?: {
+    fullText: string;
+    sections: Record<string, string>;
+  };
 }
 
 export default function PatientDiagnosisDetail() {
@@ -70,16 +75,9 @@ export default function PatientDiagnosisDetail() {
       setError(null)
       
       try {
-        // In a real app, this would be an actual API call
-        // For now, we'll simulate a fetch with a timeout
-        const response = await fetch(`/api/diagnoses/${id}`)
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch diagnosis: ${response.statusText}`)
-        }
-        
-        const data = await response.json()
-        setDiagnosisData(data)
+        // Fetch diagnosis from ML backend using mlService
+        const diagnosisData = await mlService.getDiagnosisById(id as string)
+        setDiagnosisData(diagnosisData)
       } catch (err) {
         console.error("Error fetching diagnosis:", err)
         setError(err instanceof Error ? err.message : "Failed to load diagnosis data")
@@ -90,10 +88,10 @@ export default function PatientDiagnosisDetail() {
           type: "X-Ray Analysis",
           aiDiagnosis: "Possible pneumonia",
           confidence: 87,
-          status: "approved",
+          status: "pending",
           symptoms: "Persistent cough for 10 days, fever, chest pain, difficulty breathing",
-          doctorName: "Dr. Sarah Williams",
-          doctorFeedback: "I concur with the AI diagnosis. The X-ray shows clear signs of pneumonia in the right lower lobe. I recommend a course of antibiotics (amoxicillin) and rest for at least 5 days. Please schedule a follow-up in one week.",
+          doctorName: "Awaiting doctor review",
+          doctorFeedback: "",
           imageSrc: "/xray-sample.jpg",
           aiModelData: {
             modelVersion: "MedicalVisionV2.3",
@@ -281,7 +279,7 @@ export default function PatientDiagnosisDetail() {
                       <div className="border rounded-md p-4">
                         <h4 className="font-medium mb-2">Treatment Recommendations</h4>
                         <ul className="text-sm space-y-1 list-disc list-inside">
-                          {diagnosisData.treatmentRecommendations.map((item, i) => (
+                          {diagnosisData.treatmentRecommendations?.map((item, i) => (
                             <li key={i}>{item}</li>
                           ))}
                         </ul>
@@ -340,7 +338,7 @@ export default function PatientDiagnosisDetail() {
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-1">
-                      {diagnosisData.riskFactors.map((risk, i) => (
+                      {diagnosisData.riskFactors?.map((risk, i) => (
                         <li key={i} className="flex items-center gap-2">
                           <div className="h-1.5 w-1.5 rounded-full bg-red-500"></div>
                           {risk}
@@ -515,7 +513,7 @@ export default function PatientDiagnosisDetail() {
                   <div>
                     <h3 className="font-medium mb-3">Treatment Plan</h3>
                     <ul className="space-y-2">
-                      {diagnosisData.treatmentRecommendations.map((item, i) => (
+                      {diagnosisData.treatmentRecommendations?.map((item, i) => (
                         <li key={i} className="flex items-start gap-2 text-sm">
                           <div className="h-5 w-5 bg-green-100 dark:bg-green-800/20 rounded-full flex items-center justify-center text-xs font-medium text-green-800 dark:text-green-400 mt-0.5">
                             ✓
@@ -818,33 +816,40 @@ export default function PatientDiagnosisDetail() {
       </main>
 
       <Dialog open={showAIModelDialog} onOpenChange={setShowAIModelDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>AI Model Information</DialogTitle>
             <DialogDescription>
-              Technical details about the AI analysis of your diagnosis
+              Technical details about the AI model that analyzed your data
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-4 gap-4 text-sm">
-              <div className="col-span-1 font-medium text-muted-foreground">Model</div>
-              <div className="col-span-3">
-                {diagnosisData.aiModelData.modelVersion}
+          
+          <div className="space-y-4 mt-4">
+            <div className="bg-muted rounded-md p-3">
+              <div className="flex items-center gap-2 mb-3">
+                <Brain className="h-4 w-4 text-primary" />
+                <h3 className="font-medium">Model Details</h3>
               </div>
-              
-              <div className="col-span-1 font-medium text-muted-foreground">Analysis Time</div>
-              <div className="col-span-3">
-                {diagnosisData.aiModelData.analysisTimestamp}
-              </div>
-              
-              <div className="col-span-1 font-medium text-muted-foreground">Processing</div>
-              <div className="col-span-3">
-                {diagnosisData.aiModelData.processingTime}
-              </div>
-              
-              <div className="col-span-1 font-medium text-muted-foreground">Features</div>
-              <div className="col-span-3">
-                {diagnosisData.aiModelData.featuresAnalyzed}
+              <div className="grid grid-cols-4 gap-y-2 text-sm">
+                <div className="col-span-1 font-medium text-muted-foreground">Model</div>
+                <div className="col-span-3">
+                  {diagnosisData.aiModelData?.modelVersion || "Not specified"}
+                </div>
+                
+                <div className="col-span-1 font-medium text-muted-foreground">Analysis Time</div>
+                <div className="col-span-3">
+                  {diagnosisData.aiModelData?.analysisTimestamp || "Not specified"}
+                </div>
+                
+                <div className="col-span-1 font-medium text-muted-foreground">Processing</div>
+                <div className="col-span-3">
+                  {diagnosisData.aiModelData?.processingTime || "Not specified"}
+                </div>
+                
+                <div className="col-span-1 font-medium text-muted-foreground">Features</div>
+                <div className="col-span-3">
+                  {diagnosisData.aiModelData?.featuresAnalyzed || "Not specified"}
+                </div>
               </div>
             </div>
             

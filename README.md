@@ -1,0 +1,1 @@
+curl -X POST -H "Content-Type: application/json" -d '{"symptoms":"I have headache and fever"}' http://localhost:5001/api/symptoms

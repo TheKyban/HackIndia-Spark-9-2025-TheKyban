@@ -7,8 +7,12 @@ import os
 import json
 from PIL import Image
 import io
+from flask_cors import CORS
+import uuid
+from datetime import datetime
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Model paths
 CLINICAL_CONFIG_PATH = os.path.join("models", "clinical_symptoms_analyzer.pkl")
@@ -27,6 +31,9 @@ CLASS_LABELS = [
     "Tuberculosis",
     "Lung Cancer"
 ]
+
+# In-memory storage for diagnoses (in a real app, use a database)
+diagnoses = {}
 
 @app.route("/")
 def index():
@@ -104,6 +111,117 @@ def analyze_symptoms():
             "confidence": 0,
             "recommendation": "Please consult with a doctor for a professional diagnosis."
         }), 500
+
+@app.route("/api/diagnoses", methods=["POST"])
+def create_diagnosis():
+    try:
+        # Parse request data
+        data = request.json
+        if not data or "type" not in data or "data" not in data:
+            return jsonify({"error": "Invalid request format"}), 400
+        
+        diagnosis_type = data["type"]
+        diagnosis_data = data["data"]
+        
+        # Generate unique ID
+        diagnosis_id = str(uuid.uuid4())
+        
+        # Create diagnosis object
+        diagnosis = {
+            "id": diagnosis_id,
+            "diagnosisDate": datetime.now().strftime("%Y-%m-%d"),
+            "type": "Symptom Analysis" if diagnosis_type == "symptoms" else "Image Analysis",
+            "status": "pending",
+            "doctorName": "Awaiting doctor review",
+            "doctorFeedback": "",
+            "aiModelData": {
+                "modelVersion": "ClinicalBERT-1.0" if diagnosis_type == "symptoms" else "MedicalVision-1.0",
+                "analysisTimestamp": datetime.now().isoformat(),
+                "processingTime": "2.3 seconds",
+                "featuresAnalyzed": "Clinical language patterns" if diagnosis_type == "symptoms" else "Anatomical features"
+            }
+        }
+        
+        # Add type-specific fields
+        if diagnosis_type == "symptoms":
+            ml_analysis = diagnosis_data.get("mlAnalysis", {})
+            diagnosis.update({
+                "aiDiagnosis": ml_analysis.get("diagnosis", "Unknown"),
+                "confidence": ml_analysis.get("confidence", 0),
+                "symptoms": diagnosis_data.get("description", ""),
+                "treatmentRecommendations": [ml_analysis.get("recommendation", "Consult with a doctor")],
+                "riskFactors": ["To be determined by doctor review"],
+                "aiResponse": {
+                    "fullText": f"Based on your symptoms of {diagnosis_data.get('description', '')}, the analysis indicates possible {ml_analysis.get('diagnosis', 'condition')}.",
+                    "sections": {
+                        "primary": ml_analysis.get("diagnosis", "Unknown"),
+                        "confidence": f"{ml_analysis.get('confidence', 0)}%",
+                        "recommendation": ml_analysis.get("recommendation", "Consult with a doctor")
+                    }
+                }
+            })
+            
+            # Add differential diagnosis if available
+            differential = ml_analysis.get("differentialDiagnosis")
+            if differential:
+                diagnosis["aiResponse"]["sections"]["differentialDiagnosis"] = json.dumps(differential)
+        
+        elif diagnosis_type == "image":
+            ml_analysis = diagnosis_data.get("mlAnalysis", {})
+            diagnosis.update({
+                "aiDiagnosis": ml_analysis.get("diagnosis", "Unknown"),
+                "confidence": ml_analysis.get("confidence", 0),
+                "imageSrc": "/sample-image.jpg",  # In a real app, save the image
+                "treatmentRecommendations": ["Consult with a doctor for detailed treatment plan"],
+                "riskFactors": ["To be determined by doctor review"],
+                "aiResponse": {
+                    "fullText": f"Analysis of {diagnosis_data.get('imageType', 'medical image')} shows findings consistent with {ml_analysis.get('diagnosis', 'condition')}.",
+                    "sections": {
+                        "primary": ml_analysis.get("diagnosis", "Unknown"),
+                        "confidence": f"{ml_analysis.get('confidence', 0)}%",
+                        "probabilities": json.dumps(ml_analysis.get("allProbabilities", {}))
+                    }
+                }
+            })
+        
+        # Store diagnosis
+        diagnoses[diagnosis_id] = diagnosis
+        
+        return jsonify({
+            "success": True,
+            "diagnosisId": diagnosis_id
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/diagnoses", methods=["GET"])
+def get_all_diagnoses():
+    try:
+        # Convert diagnoses dictionary to list
+        diagnoses_list = list(diagnoses.values())
+        
+        # Sort by date (newest first)
+        diagnoses_list.sort(key=lambda x: x["diagnosisDate"], reverse=True)
+        
+        return jsonify({
+            "diagnoses": diagnoses_list,
+            "total": len(diagnoses_list)
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/diagnoses/<diagnosis_id>", methods=["GET"])
+def get_diagnosis(diagnosis_id):
+    try:
+        if diagnosis_id not in diagnoses:
+            return jsonify({"error": "Diagnosis not found"}), 404
+        
+        return jsonify(diagnoses[diagnosis_id])
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     # For production, use a proper WSGI server like gunicorn

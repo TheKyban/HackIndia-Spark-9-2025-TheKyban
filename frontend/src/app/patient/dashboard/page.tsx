@@ -60,25 +60,24 @@ export default function PatientDashboard() {
     isAnalyzingSymptoms, 
     isAnalyzingImage,
     symptomResult,
-    imageResult
+    imageResult,
+    submitSymptomDiagnosis,
+    submitImageDiagnosis,
+    isSubmittingDiagnosis,
+    getDiagnoses,
+    isLoadingDiagnoses
   } = useMlAnalysis()
   
   useEffect(() => {
-    // Fetch past diagnoses
+    // Fetch past diagnoses directly from ML backend
     async function fetchDiagnoses() {
       setIsLoading(true)
       
       try {
-        const response = await fetch('/api/diagnoses')
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch diagnoses: ${response.statusText}`)
-        }
-        
-        const data = await response.json()
+        const diagnosesData = await getDiagnoses()
         
         // Transform the data to match our component's expected format
-        const formattedDiagnoses = data.diagnoses.map((d: any) => ({
+        const formattedDiagnoses = diagnosesData.map((d) => ({
           id: d.id,
           title: d.aiDiagnosis,
           date: d.diagnosisDate,
@@ -101,7 +100,7 @@ export default function PatientDashboard() {
     }
     
     fetchDiagnoses()
-  }, [])
+  }, []) // Empty dependency array to ensure this only runs once
 
   const handleSymptomSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -127,35 +126,15 @@ export default function PatientDashboard() {
       // Use ML API to analyze symptoms
       const result = await analyzeSymptoms(symptoms)
       
-      // Submit data to the API
-      const response = await fetch('/api/diagnoses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: 'symptoms',
-          data: {
-            description: symptoms,
-            duration,
-            severity,
-            medicalHistory: medicalHistory.trim() ? medicalHistory : undefined,
-            mlAnalysis: {
-              diagnosis: result.diagnosis,
-              confidence: result.confidence,
-              recommendation: result.recommendation,
-              modelUsed: result.model_used,
-              differentialDiagnosis: result.differential_diagnosis
-            }
-          }
-        }),
-      })
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`)
+      // Submit diagnosis directly to ML backend
+      const symptomData = {
+        description: symptoms,
+        duration,
+        severity,
+        medicalHistory: medicalHistory.trim() ? medicalHistory : undefined
       }
       
-      const diagnosisResult = await response.json()
+      const diagnosisResult = await submitSymptomDiagnosis(symptomData, result)
       
       toast.success("Symptoms analyzed with ClinicalBERT!")
       
@@ -212,40 +191,22 @@ export default function PatientDashboard() {
     
     try {
       // Use ML API to analyze the first image
-      const imageResult = await analyzeImage(uploadedBase64[0])
+      const result = await analyzeImage(uploadedBase64[0])
       
-      // Submit to internal API
-      const response = await fetch('/api/diagnoses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: 'image',
-          data: {
-            imageData: uploadedBase64[0].substring(0, 100) + "...", // Truncated for request size
-            imageType: "Medical Image",
-            bodyPart: "Chest/Lungs",
-            mlAnalysis: {
-              diagnosis: imageResult.diagnosis,
-              confidence: imageResult.confidence,
-              allProbabilities: imageResult.all_probabilities
-            }
-          }
-        }),
-      })
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`)
+      // Submit to ML backend directly
+      const imageData = {
+        imageData: uploadedBase64[0].substring(0, 100) + "...", // Truncated for request size
+        imageType: "Medical Image",
+        bodyPart: "Chest/Lungs"
       }
       
-      const result = await response.json()
+      const diagnosisResult = await submitImageDiagnosis(imageData, result)
       
       toast.success("Medical images analyzed with ML model!")
       
       // Redirect to the new diagnosis
       setTimeout(() => {
-        router.push(`/patient/diagnosis/${result.diagnosisId}`)
+        router.push(`/patient/diagnosis/${diagnosisResult.diagnosisId}`)
       }, 1000)
     } catch (error) {
       console.error("Error submitting images:", error)
@@ -400,12 +361,13 @@ export default function PatientDashboard() {
                           <div className="p-3 border-t flex justify-end">
                             <Button 
                               onClick={handleFilesSubmit} 
-                              disabled={isUploading || isSubmitting || isAnalyzingImage}
+                              disabled={isUploading || isSubmitting || isAnalyzingImage || isSubmittingDiagnosis}
                             >
-                              {isSubmitting || isAnalyzingImage ? (
+                              {isSubmitting || isAnalyzingImage || isSubmittingDiagnosis ? (
                                 <>
                                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  {isAnalyzingImage ? "Analyzing with ML..." : "Processing..."}
+                                  {isAnalyzingImage ? "Analyzing with ML..." : 
+                                   isSubmittingDiagnosis ? "Saving results..." : "Processing..."}
                                 </>
                               ) : "Submit for Analysis"}
                             </Button>
@@ -476,12 +438,13 @@ export default function PatientDashboard() {
                       <div className="flex justify-end">
                         <Button 
                           type="submit" 
-                          disabled={isSubmitting || isAnalyzingSymptoms}
+                          disabled={isSubmitting || isAnalyzingSymptoms || isSubmittingDiagnosis}
                         >
-                          {isSubmitting || isAnalyzingSymptoms ? (
+                          {isSubmitting || isAnalyzingSymptoms || isSubmittingDiagnosis ? (
                             <>
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              {isAnalyzingSymptoms ? "Analyzing with ClinicalBERT..." : "Processing..."}
+                              {isAnalyzingSymptoms ? "Analyzing with ClinicalBERT..." : 
+                               isSubmittingDiagnosis ? "Saving results..." : "Processing..."}
                             </>
                           ) : "Submit for Analysis"}
                         </Button>
@@ -500,7 +463,7 @@ export default function PatientDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isLoading || isLoadingDiagnoses ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-8 w-8 text-primary animate-spin" />
                   </div>

@@ -53,7 +53,7 @@ router.post('/', async (req, res) => {
       You are a helpful medical assistant chatbot. Please respond to the following query
       from a patient. Keep your response medically accurate, but easy to understand.
       Remember you are not a doctor and cannot diagnose conditions, but you can provide
-      general health information.
+      general health information. provide information in natural language and about 50 words and 3 lists
       
       Patient's query: ${message}
     `;

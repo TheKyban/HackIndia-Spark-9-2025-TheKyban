@@ -1,5 +1,11 @@
-import { useState } from 'react';
-import mlService, { SymptomAnalysisResult, ImageAnalysisResult } from '@/services/mlService';
+import { useState, useCallback } from 'react';
+import mlService, { 
+  SymptomAnalysisResult, 
+  ImageAnalysisResult,
+  DiagnosisData,
+  SymptomSubmission,
+  ImageSubmission
+} from '@/services/mlService';
 
 interface UseMlAnalysisResult {
   // Symptom analysis
@@ -13,6 +19,20 @@ interface UseMlAnalysisResult {
   imageResult: ImageAnalysisResult | null;
   isAnalyzingImage: boolean;
   imageError: Error | null;
+  
+  // Diagnosis submission
+  submitSymptomDiagnosis: (symptomData: SymptomSubmission, analysisResult: SymptomAnalysisResult) => Promise<{ diagnosisId: string }>;
+  submitImageDiagnosis: (imageData: ImageSubmission, analysisResult: ImageAnalysisResult) => Promise<{ diagnosisId: string }>;
+  isSubmittingDiagnosis: boolean;
+  submissionError: Error | null;
+  
+  // Diagnosis retrieval
+  getDiagnoses: () => Promise<DiagnosisData[]>;
+  getDiagnosisById: (id: string) => Promise<DiagnosisData>;
+  diagnoses: DiagnosisData[] | null;
+  currentDiagnosis: DiagnosisData | null;
+  isLoadingDiagnoses: boolean;
+  diagnosesError: Error | null;
   
   // Clear results
   clearResults: () => void;
@@ -32,10 +52,20 @@ export function useMlAnalysis(): UseMlAnalysisResult {
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const [imageError, setImageError] = useState<Error | null>(null);
   
+  // Diagnosis submission state
+  const [isSubmittingDiagnosis, setIsSubmittingDiagnosis] = useState(false);
+  const [submissionError, setSubmissionError] = useState<Error | null>(null);
+  
+  // Diagnosis retrieval state
+  const [diagnoses, setDiagnoses] = useState<DiagnosisData[] | null>(null);
+  const [currentDiagnosis, setCurrentDiagnosis] = useState<DiagnosisData | null>(null);
+  const [isLoadingDiagnoses, setIsLoadingDiagnoses] = useState(false);
+  const [diagnosesError, setDiagnosesError] = useState<Error | null>(null);
+  
   /**
    * Analyze symptoms using the ML API
    */
-  const analyzeSymptoms = async (symptoms: string): Promise<SymptomAnalysisResult> => {
+  const analyzeSymptoms = useCallback(async (symptoms: string): Promise<SymptomAnalysisResult> => {
     setIsAnalyzingSymptoms(true);
     setSymptomError(null);
     
@@ -50,12 +80,12 @@ export function useMlAnalysis(): UseMlAnalysisResult {
     } finally {
       setIsAnalyzingSymptoms(false);
     }
-  };
+  }, []);
   
   /**
    * Analyze an image using the ML API
    */
-  const analyzeImage = async (imageData: string): Promise<ImageAnalysisResult> => {
+  const analyzeImage = useCallback(async (imageData: string): Promise<ImageAnalysisResult> => {
     setIsAnalyzingImage(true);
     setImageError(null);
     
@@ -70,17 +100,103 @@ export function useMlAnalysis(): UseMlAnalysisResult {
     } finally {
       setIsAnalyzingImage(false);
     }
-  };
+  }, []);
+  
+  /**
+   * Submit a symptom diagnosis to the ML backend
+   */
+  const submitSymptomDiagnosis = useCallback(async (
+    symptomData: SymptomSubmission,
+    analysisResult: SymptomAnalysisResult
+  ): Promise<{ diagnosisId: string }> => {
+    setIsSubmittingDiagnosis(true);
+    setSubmissionError(null);
+    
+    try {
+      const result = await mlService.submitSymptomDiagnosis(symptomData, analysisResult);
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Failed to submit symptom diagnosis');
+      setSubmissionError(err);
+      throw err;
+    } finally {
+      setIsSubmittingDiagnosis(false);
+    }
+  }, []);
+  
+  /**
+   * Submit an image diagnosis to the ML backend
+   */
+  const submitImageDiagnosis = useCallback(async (
+    imageData: ImageSubmission,
+    analysisResult: ImageAnalysisResult
+  ): Promise<{ diagnosisId: string }> => {
+    setIsSubmittingDiagnosis(true);
+    setSubmissionError(null);
+    
+    try {
+      const result = await mlService.submitImageDiagnosis(imageData, analysisResult);
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Failed to submit image diagnosis');
+      setSubmissionError(err);
+      throw err;
+    } finally {
+      setIsSubmittingDiagnosis(false);
+    }
+  }, []);
+  
+  /**
+   * Get all diagnoses
+   */
+  const getDiagnoses = useCallback(async (): Promise<DiagnosisData[]> => {
+    setIsLoadingDiagnoses(true);
+    setDiagnosesError(null);
+    
+    try {
+      const result = await mlService.getDiagnoses();
+      setDiagnoses(result);
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Failed to fetch diagnoses');
+      setDiagnosesError(err);
+      throw err;
+    } finally {
+      setIsLoadingDiagnoses(false);
+    }
+  }, []);
+  
+  /**
+   * Get a diagnosis by ID
+   */
+  const getDiagnosisById = useCallback(async (id: string): Promise<DiagnosisData> => {
+    setIsLoadingDiagnoses(true);
+    setDiagnosesError(null);
+    
+    try {
+      const result = await mlService.getDiagnosisById(id);
+      setCurrentDiagnosis(result);
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(`Failed to fetch diagnosis with ID: ${id}`);
+      setDiagnosesError(err);
+      throw err;
+    } finally {
+      setIsLoadingDiagnoses(false);
+    }
+  }, []);
   
   /**
    * Clear all analysis results
    */
-  const clearResults = () => {
+  const clearResults = useCallback(() => {
     setSymptomResult(null);
     setImageResult(null);
     setSymptomError(null);
     setImageError(null);
-  };
+    setSubmissionError(null);
+    setDiagnosesError(null);
+  }, []);
   
   return {
     analyzeSymptoms,
@@ -93,6 +209,18 @@ export function useMlAnalysis(): UseMlAnalysisResult {
     isAnalyzingImage,
     imageError,
     
+    submitSymptomDiagnosis,
+    submitImageDiagnosis,
+    isSubmittingDiagnosis,
+    submissionError,
+    
+    getDiagnoses,
+    getDiagnosisById,
+    diagnoses,
+    currentDiagnosis,
+    isLoadingDiagnoses,
+    diagnosesError,
+    
     clearResults
   };
-} 
+}
