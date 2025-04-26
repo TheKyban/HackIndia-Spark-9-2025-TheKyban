@@ -9,4 +9,8 @@ opencv-python==4.8.0.76
 pillow==10.0.0
 torch==2.0.1
 transformers==4.31.0
-flask==2.3.3 
+flask==2.3.3
+scipy==1.11.3
+sentencepiece==0.1.99
+protobuf==4.24.4
+accelerate==0.23.0 

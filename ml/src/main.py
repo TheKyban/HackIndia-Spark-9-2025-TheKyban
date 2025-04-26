@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import numpy as np
 import tensorflow as tf
 from models.model import MedicalImageClassifier
+from models.symptoms_model import SymptomAnalyzer
 import os
 import json
 from PIL import Image
@@ -9,8 +10,14 @@ import io
 
 app = Flask(__name__)
 
-# Load the model - in production, you would load a pre-trained model
-model = None
+# Model paths
+CLINICAL_CONFIG_PATH = os.path.join("models", "clinical_symptoms_analyzer.pkl")
+
+# Load the models
+image_model = None
+symptoms_model = SymptomAnalyzer(
+    model_path=CLINICAL_CONFIG_PATH if os.path.exists(CLINICAL_CONFIG_PATH) else None
+)
 
 # Define class labels
 CLASS_LABELS = [
@@ -42,14 +49,14 @@ def predict():
         img_array = np.expand_dims(img_array, axis=0)
         
         # Make prediction
-        if model is None:
+        if image_model is None:
             # Mock prediction for demonstration
             confidence_scores = np.random.random(len(CLASS_LABELS))
             confidence_scores = confidence_scores / np.sum(confidence_scores)
             prediction_idx = np.argmax(confidence_scores)
         else:
             # Real prediction
-            predictions = model.predict(img_array)
+            predictions = image_model.predict(img_array)
             prediction_idx = np.argmax(predictions[0])
             confidence_scores = predictions[0]
         
@@ -77,26 +84,28 @@ def analyze_symptoms():
     
     symptoms = data["symptoms"]
     
-    # In a real application, you would pass this to an NLP model
-    # For now, just return a mock response based on keyword matching
-    
-    if "cough" in symptoms.lower() and "fever" in symptoms.lower():
-        diagnosis = "Possible respiratory infection"
-        confidence = 75.5
-    elif "headache" in symptoms.lower():
-        diagnosis = "Possible migraine or tension headache"
-        confidence = 68.2
-    else:
-        diagnosis = "Inconclusive based on provided symptoms"
-        confidence = 45.0
-    
-    return jsonify({
-        "diagnosis": diagnosis,
-        "confidence": confidence,
-        "recommendation": "Please consult with a doctor for a professional diagnosis."
-    })
+    try:
+        # Use the pretrained model to analyze symptoms
+        result = symptoms_model.analyze(symptoms)
+        
+        # Add general recommendation if not present
+        if "recommendation" not in result:
+            result["recommendation"] = "Please consult with a doctor for a professional diagnosis."
+        
+        # Include model information in the response
+        if "model_used" not in result:
+            result["model_used"] = "ClinicalBERT" if hasattr(symptoms_model, "classifier") and symptoms_model.classifier else "keyword matching"
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({
+            "error": f"Error analyzing symptoms: {str(e)}",
+            "diagnosis": "Error in analysis",
+            "confidence": 0,
+            "recommendation": "Please consult with a doctor for a professional diagnosis."
+        }), 500
 
 if __name__ == "__main__":
     # For production, use a proper WSGI server like gunicorn
     port = int(os.environ.get("PORT", 5001))
-    app.run(host="0.0.0.0", port=port, debug=True) 
+    app.run(host="0.0.0.0", port=port, debug=True)
