@@ -2,7 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Initialize the Gemini API with your API key
 // In production, use environment variables for API keys
-const API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyDhZvlcpoRmcYlwGMNvoPlIV8oR47wQZ50";
+const API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+if (!API_KEY) {
+  throw new Error("NEXT_PUBLIC_GEMINI_API_KEY is not set");
+}
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 export type SymptomData = {

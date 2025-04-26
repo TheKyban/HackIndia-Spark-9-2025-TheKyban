@@ -28,6 +28,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useGeminiDiagnosis } from "@/lib/hooks/useGeminiDiagnosis"
 import { useChatWidget } from "@/lib/hooks/useChatWidget"
+import { useMlAnalysis } from "@/lib/hooks/useMlAnalysis"
 
 // Type definition for diagnoses
 interface Diagnosis {
@@ -42,6 +43,7 @@ export default function PatientDashboard() {
   const router = useRouter()
   const [isUploading, setIsUploading] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
+  const [uploadedBase64, setUploadedBase64] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState("upload")
   const [symptoms, setSymptoms] = useState("")
   const [duration, setDuration] = useState("")
@@ -52,6 +54,14 @@ export default function PatientDashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const { fileToBase64 } = useGeminiDiagnosis()
   const { toggleChat } = useChatWidget()
+  const { 
+    analyzeSymptoms, 
+    analyzeImage, 
+    isAnalyzingSymptoms, 
+    isAnalyzingImage,
+    symptomResult,
+    imageResult
+  } = useMlAnalysis()
   
   useEffect(() => {
     // Fetch past diagnoses
@@ -114,6 +124,9 @@ export default function PatientDashboard() {
     setIsSubmitting(true)
     
     try {
+      // Use ML API to analyze symptoms
+      const result = await analyzeSymptoms(symptoms)
+      
       // Submit data to the API
       const response = await fetch('/api/diagnoses', {
         method: 'POST',
@@ -126,7 +139,14 @@ export default function PatientDashboard() {
             description: symptoms,
             duration,
             severity,
-            medicalHistory: medicalHistory.trim() ? medicalHistory : undefined
+            medicalHistory: medicalHistory.trim() ? medicalHistory : undefined,
+            mlAnalysis: {
+              diagnosis: result.diagnosis,
+              confidence: result.confidence,
+              recommendation: result.recommendation,
+              modelUsed: result.model_used,
+              differentialDiagnosis: result.differential_diagnosis
+            }
           }
         }),
       })
@@ -135,13 +155,13 @@ export default function PatientDashboard() {
         throw new Error(`API error: ${response.statusText}`)
       }
       
-      const result = await response.json()
+      const diagnosisResult = await response.json()
       
-      toast.success("Symptoms submitted for analysis")
+      toast.success("Symptoms analyzed with ClinicalBERT!")
       
       // Redirect to the new diagnosis
       setTimeout(() => {
-        router.push(`/patient/diagnosis/${result.diagnosisId}`)
+        router.push(`/patient/diagnosis/${diagnosisResult.diagnosisId}`)
       }, 1000)
     } catch (error) {
       console.error("Error submitting symptoms:", error)
@@ -163,14 +183,12 @@ export default function PatientDashboard() {
         const newFiles = Array.from(files).map(file => file.name)
         setUploadedFiles(prev => [...prev, ...newFiles])
         
-        // Convert the first file to base64 for processing
-        if (files[0]) {
-          const base64Data = await fileToBase64(files[0])
-          
-          // Store in state for later submission
-          // In a real app, you might want to store this in a more appropriate state variable
-          setUploadedFiles(prev => [...prev, base64Data.substring(0, 20) + '...'])
-        }
+        // Convert files to base64 for processing
+        const base64Promises = Array.from(files).map(file => fileToBase64(file))
+        const base64Results = await Promise.all(base64Promises)
+        
+        // Store base64 data
+        setUploadedBase64(prev => [...prev, ...base64Results])
         
         toast.success(`${files.length} file(s) uploaded successfully`)
       } catch (error) {
@@ -185,7 +203,7 @@ export default function PatientDashboard() {
   }
 
   const handleFilesSubmit = async () => {
-    if (uploadedFiles.length === 0) {
+    if (uploadedBase64.length === 0) {
       toast.error("Please upload at least one medical image")
       return
     }
@@ -193,8 +211,10 @@ export default function PatientDashboard() {
     setIsSubmitting(true)
     
     try {
-      // In a real app, you would send the actual image data
-      // This is simplified for demonstration purposes
+      // Use ML API to analyze the first image
+      const imageResult = await analyzeImage(uploadedBase64[0])
+      
+      // Submit to internal API
       const response = await fetch('/api/diagnoses', {
         method: 'POST',
         headers: {
@@ -203,9 +223,14 @@ export default function PatientDashboard() {
         body: JSON.stringify({
           type: 'image',
           data: {
-            imageData: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/...", // Dummy data
-            imageType: "X-Ray",
-            bodyPart: "Chest"
+            imageData: uploadedBase64[0].substring(0, 100) + "...", // Truncated for request size
+            imageType: "Medical Image",
+            bodyPart: "Chest/Lungs",
+            mlAnalysis: {
+              diagnosis: imageResult.diagnosis,
+              confidence: imageResult.confidence,
+              allProbabilities: imageResult.all_probabilities
+            }
           }
         }),
       })
@@ -216,7 +241,7 @@ export default function PatientDashboard() {
       
       const result = await response.json()
       
-      toast.success("Medical images submitted for analysis")
+      toast.success("Medical images analyzed with ML model!")
       
       // Redirect to the new diagnosis
       setTimeout(() => {
@@ -232,6 +257,7 @@ export default function PatientDashboard() {
 
   const removeFile = (index: number) => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index))
+    setUploadedBase64(prev => prev.filter((_, i) => i !== index))
   }
 
   return (
@@ -374,12 +400,12 @@ export default function PatientDashboard() {
                           <div className="p-3 border-t flex justify-end">
                             <Button 
                               onClick={handleFilesSubmit} 
-                              disabled={isUploading || isSubmitting}
+                              disabled={isUploading || isSubmitting || isAnalyzingImage}
                             >
-                              {isSubmitting ? (
+                              {isSubmitting || isAnalyzingImage ? (
                                 <>
                                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Processing...
+                                  {isAnalyzingImage ? "Analyzing with ML..." : "Processing..."}
                                 </>
                               ) : "Submit for Analysis"}
                             </Button>
@@ -450,12 +476,12 @@ export default function PatientDashboard() {
                       <div className="flex justify-end">
                         <Button 
                           type="submit" 
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || isAnalyzingSymptoms}
                         >
-                          {isSubmitting ? (
+                          {isSubmitting || isAnalyzingSymptoms ? (
                             <>
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Analyzing...
+                              {isAnalyzingSymptoms ? "Analyzing with ClinicalBERT..." : "Processing..."}
                             </>
                           ) : "Submit for Analysis"}
                         </Button>
